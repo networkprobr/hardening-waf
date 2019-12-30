@@ -1,0 +1,99 @@
+#### HARDENING
+# removing welcome page
+mv /etc/httpd/conf.d/welcome.conf /etc/httpd/conf.d/welcome.conf_backup
+
+# Disabling indexes and followsymlinks em /etc/httpd/conf/httpd.conf
+Alternate from Options Indexes FollowSymLinks to Options -Indexes -FollowSymLinks
+
+# Disabling signature and tokens
+Insert bellow last line in /etc/httpd/conf/httpd.conf
+ServerSignature Off
+ServerTokens Prod
+
+# php expose off
+In /etc/php.ini alternate from "expose_php = On" to --> "expose_php = Off"
+
+# apache services restart
+sudo systemctl restart httpd
+
+#### WAF
+## mod_security and mod_evasive install
+
+# epel repo install (in order to installing mod_evasive)
+sudo yum install epel-release -y
+sudo yum repolist
+
+# Installing mod_security, mod_evasive, git and mod_security_crs
+sudo yum -y install mod_security mod_evasive git mod_security_crs
+
+# installing crs rules
+cd /etc/httpd/modsecurity.d/
+sudo git clone --quiet https://github.com/SpiderLabs/owasp-modsecurity-crs
+sudo cp /etc/httpd/modsecurity.d/owasp-modsecurity-crs/crs-setup.conf.example /etc/httpd/modsecurity.d/owasp-modsecurity-crs/crs-setup.conf
+sudo systemctl restart httpd
+
+# creating a whitelist for zabbix files/access
+sudo vim /etc/httpd/modsecurity.d/whitelist.conf
+<LocationMatch .*>
+<IfModule mod_security2.c>
+SecRuleRemoveById 980140
+SecRuleRemoveById 981173
+SecRuleRemoveById 960010
+SecRuleRemoveById 981257
+SecRuleRemoveById 981245
+SecRuleRemoveById 981246
+SecRuleRemoveById 981243
+SecRuleRemoveById 981242
+SecRuleRemoveById 980130
+SecRuleRemoveById 920350
+SecRuleRemoveById 950001
+SecRuleRemoveById 959073
+SecRuleRemoveById 981318
+SecRuleRemoveById 981231
+SecRuleRemoveById 960024
+SecRuleRemoveById 960017
+SecRuleRemoveById 960032
+SecRuleRemoveById 960034
+SecRuleRemoveById 960035
+SecRuleRemoveById 960038
+</IfModule>
+</LocationMatch>
+
+<LocationMatch /usr/share/zabbix/api_jsonrpc.php>
+<IfModule mod_security2.c>
+SecRuleEngine Off
+</IfModule>
+</LocationMatch>
+
+<LocationMatch /zabbix/jsrpc.php>
+<IfModule mod_security2.c>
+SecRuleEngine Off
+</IfModule>
+</LocationMatch>
+
+# whitelisting false_positives
+sudo vim /etc/httpd/conf.d/mod_security.conf
+<ifmodule mod_security2.c>
+SecRuleRemoveById 960010 980130 958291 960024 981173 981246 981243 920420 949110 981245 981242 981257 981204
+</ifmodule>
+
+# enabling crs rules
+sudo vim /etc/httpd/conf/httpd.conf
+<IfModule security2_module>
+Include modsecurity.d/owasp-modsecurity-crs/crs-setup.conf
+Include modsecurity.d/owasp-modsecurity-crs/rules/*.conf
+</IfModule>
+
+# bypassing local IPs on mod_evasive
+/etc/httpd/conf.d/mod_evasive.conf
+sudo vim /etc/httpd/conf.d/mod_evasive.conf
+DOSWhitelist 127.0.0.1 #ip_localhost
+DOSWhitelist your_lan_ip #ip_local
+DOSWhitelist your_wan_ip #ip_wan
+
+# restarting apache to apply configs
+sudo systemctl restart httpd
+
+# working false-positives
+sudo cat /var/log/httpd/modsec_audit.log | grep id
+/etc/httpd/conf.d/mod_security.conf
